@@ -187,6 +187,33 @@ LANGUAGE_TONE_START_MAP = {
     "EN": NUM_ZH_TONES + NUM_JP_TONES,
 }
 
+DIFFICULTY = {
+    "s": 1.0,
+    "sh": 1.0,
+    "r": 1.0,
+    "ry": 1.0,
+    "ts": 1.0,
+    "z": 1.0,
+    "j": 0.7,
+    "p": 0.5,
+    "py": 0.5,
+    "g": 0.5,
+    "gy": 0.5,
+    "d": 0.5,
+    "dy": 0.5,
+    "w": 0.5,
+    "f": 0.5,
+    "v": 0.5,
+    "y": 0.5,
+    "cl": 0.5,
+    "k": 0.4,
+    "ky": 0.4,
+    "t": 0.4,
+    "ty": 0.4,
+    "n": 0.1,
+    "ny": 0.1,
+}
+
 
 if __name__ == "__main__":
     a = set(ZH_SYMBOLS)

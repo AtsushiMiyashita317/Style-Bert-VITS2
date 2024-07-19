@@ -23,6 +23,7 @@ from style_bert_vits2.nlp.japanese import pyopenjtalk_worker as pyopenjtalk
 from style_bert_vits2.nlp.japanese.g2p_utils import g2kata_tone, kata_tone2phone_tone
 from style_bert_vits2.nlp.japanese.normalizer import normalize_text
 from style_bert_vits2.tts_model import TTSModelHolder
+from style_bert_vits2.models.hook import HookManager
 
 
 # pyopenjtalk_worker を起動
@@ -230,7 +231,7 @@ def create_inference_app(model_holder: TTSModelHolder) -> gr.Blocks:
         assert model_holder.current_model is not None
 
         wrong_tone_message = ""
-        kata_tone: Optional[list[tuple[str, int]]] = None
+        kata_tone: Optional[list[tuple[str, int, float]]] = None
         if use_tone and kata_tone_json_str != "":
             if language != "JP":
                 logger.warning("Only Japanese is supported for tone generation.")
@@ -244,9 +245,9 @@ def create_inference_app(model_holder: TTSModelHolder) -> gr.Blocks:
                 kata_tone = []
                 json_data = json.loads(kata_tone_json_str)
                 # tupleを使うように変換
-                for kana, tone in json_data:
-                    assert isinstance(kana, str) and tone in (0, 1), f"{kana}, {tone}"
-                    kata_tone.append((kana, tone))
+                for kana, tone, difficulty in json_data:
+                    assert isinstance(kana, str) and tone in (0, 1) and 0.0 <= difficulty <= 1.0, f"{kana}, {tone}, {difficulty}"
+                    kata_tone.append((kana, tone, difficulty))
             except Exception as e:
                 logger.warning(f"Error occurred when parsing kana_tone_json: {e}")
                 wrong_tone_message = f"アクセント指定が不正です: {e}"
@@ -254,15 +255,20 @@ def create_inference_app(model_holder: TTSModelHolder) -> gr.Blocks:
 
         # toneは実際に音声合成に代入される際のみnot Noneになる
         tone: Optional[list[int]] = None
+        difficulty: Optional[list[float]] = None
         if kata_tone is not None:
             phone_tone = kata_tone2phone_tone(kata_tone)
-            tone = [t for _, t in phone_tone]
+            tone = [t for _, t, _ in phone_tone]
+            difficulty = [d for _, _, d in phone_tone]
 
         speaker_id = model_holder.current_model.spk2id[speaker]
 
         start_time = datetime.datetime.now()
 
+        hook_manager = HookManager(difficulty)
+
         try:
+            hook_manager.register_hooks1(model_holder.current_model.net_g)
             sr, audio = model_holder.current_model.infer(
                 text=text,
                 language=language,
@@ -283,6 +289,29 @@ def create_inference_app(model_holder: TTSModelHolder) -> gr.Blocks:
                 pitch_scale=pitch_scale,
                 intonation_scale=intonation_scale,
             )
+            hook_manager.remove_hooks()
+            hook_manager.register_hooks2(model_holder.current_model.net_g)
+            sr, audio = model_holder.current_model.infer(
+                text=text,
+                language=language,
+                reference_audio_path=reference_audio_path,
+                sdp_ratio=sdp_ratio,
+                noise=noise_scale,
+                noise_w=noise_scale_w,
+                length=length_scale,
+                line_split=line_split,
+                split_interval=split_interval,
+                assist_text=assist_text,
+                assist_text_weight=assist_text_weight,
+                use_assist_text=use_assist_text,
+                style=style,
+                style_weight=style_weight,
+                given_tone=tone,
+                speaker_id=speaker_id,
+                pitch_scale=pitch_scale,
+                intonation_scale=intonation_scale,
+            )
+            hook_manager.remove_hooks()
         except InvalidToneError as e:
             logger.error(f"Tone error: {e}")
             return f"Error: アクセント指定が不正です:\n{e}", None, kata_tone_json_str

@@ -101,13 +101,13 @@ class TTSModel:
             )
         self.__style_vector_inference: Optional[Any] = None
 
-        self.__net_g: Union[SynthesizerTrn, SynthesizerTrnJPExtra, None] = None
+        self.net_g: Union[SynthesizerTrn, SynthesizerTrnJPExtra, None] = None
 
     def load(self) -> None:
         """
         音声合成モデルをデバイスにロードする。
         """
-        self.__net_g = get_net_g(
+        self.net_g = get_net_g(
             model_path=str(self.model_path),
             version=self.hyper_parameters.version,
             device=self.device,
@@ -266,9 +266,9 @@ class TTSModel:
         if assist_text == "" or not use_assist_text:
             assist_text = None
 
-        if self.__net_g is None:
+        if self.net_g is None:
             self.load()
-        assert self.__net_g is not None
+        assert self.net_g is not None
         if reference_audio_path is None:
             style_id = self.style2id[style]
             style_vector = self.__get_style_vector(style_id, style_weight)
@@ -287,7 +287,7 @@ class TTSModel:
                     sid=speaker_id,
                     language=language,
                     hps=self.hyper_parameters,
-                    net_g=self.__net_g,
+                    net_g=self.net_g,
                     device=self.device,
                     assist_text=assist_text,
                     assist_text_weight=assist_text_weight,
@@ -311,7 +311,7 @@ class TTSModel:
                             sid=speaker_id,
                             language=language,
                             hps=self.hyper_parameters,
-                            net_g=self.__net_g,
+                            net_g=self.net_g,
                             device=self.device,
                             assist_text=assist_text,
                             assist_text_weight=assist_text_weight,
