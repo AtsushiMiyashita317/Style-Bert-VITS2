@@ -103,6 +103,7 @@ initial_md = """
 
 - Ver 2.3で追加された**エディター版**のほうが実際に読み上げさせるには使いやすいかもしれません。`Editor.bat`か`python server_editor.py --inbrowser`で起動できます。
 """
+initial_md = ""
 
 terms_of_use_md = """
 ## お願いとデフォルトモデルのライセンス
@@ -157,6 +158,7 @@ Style-Bert-VITS2を用いる際は、以下のお願いを守っていただけ�
 - 本モデルを別モデルとマージできるのは、その別モデル作成の際に学習に使われた声の権利者が許諾している場合に限る
 - あみたろの声の特徴が残っている場合（マージの割合が25%以上の場合）は、その利用は[あみたろの声素材工房様の規約](https://amitaro.net/voice/voice_rule/)の範囲内に限定され、そのモデルに関してもこの規約が適応される
 """
+terms_of_use_md = ""
 
 how_to_md = """
 下のように`model_assets`ディレクトリの中にモデルファイルたちを置いてください。
@@ -226,6 +228,10 @@ def create_inference_app(model_holder: TTSModelHolder) -> gr.Blocks:
         speaker,
         pitch_scale,
         intonation_scale,
+        use_nnsvs,
+        f0_shift_cent,
+        f0_ceil,
+        f0_floor,
     ):
         model_holder.get_model(model_name, model_path)
         assert model_holder.current_model is not None
@@ -269,7 +275,7 @@ def create_inference_app(model_holder: TTSModelHolder) -> gr.Blocks:
 
         try:
             hook_manager.register_hooks1(model_holder.current_model.net_g)
-            sr, audio = model_holder.current_model.infer(
+            sr, prosody = model_holder.current_model.infer(
                 text=text,
                 language=language,
                 reference_audio_path=reference_audio_path,
@@ -312,6 +318,9 @@ def create_inference_app(model_holder: TTSModelHolder) -> gr.Blocks:
                 intonation_scale=intonation_scale,
             )
             hook_manager.remove_hooks()
+            print(audio.dtype)
+            if use_nnsvs:
+                audio, sr = model_holder.forward_nnsvs(audio, sr, prosody, f0_shift_cent, f0_ceil, f0_floor)
         except InvalidToneError as e:
             logger.error(f"Tone error: {e}")
             return f"Error: アクセント指定が不正です:\n{e}", None, kata_tone_json_str
@@ -385,11 +394,37 @@ def create_inference_app(model_holder: TTSModelHolder) -> gr.Blocks:
                     step=0.1,
                     label="抑揚(1以外では音質劣化)",
                 )
+                f0_shift_cent = gr.Slider(
+                    minimum=-1000,
+                    maximum=1000,
+                    value=0,
+                    step=10,
+                    label="f0_shift_cent",
+                )
+                f0_ceil = gr.Slider(
+                    minimum=200,
+                    maximum=1000,
+                    value=600,
+                    step=10,
+                    label="f0_ceil",
+                )
+                f0_floor = gr.Slider(
+                    minimum=0,
+                    maximum=200,
+                    value=10,
+                    step=10,
+                    label="f0_floor",
+                )
 
                 line_split = gr.Checkbox(
                     label="改行で分けて生成（分けたほうが感情が乗ります）",
                     value=DEFAULT_LINE_SPLIT,
                 )
+                use_nnsvs = gr.Checkbox(
+                    label="use_nnsvs",
+                    value=True,
+                )
+
                 split_interval = gr.Slider(
                     minimum=0.0,
                     maximum=2,
@@ -522,6 +557,10 @@ def create_inference_app(model_holder: TTSModelHolder) -> gr.Blocks:
                 speaker,
                 pitch_scale,
                 intonation_scale,
+                use_nnsvs,
+                f0_shift_cent,
+                f0_ceil,
+                f0_floor,
             ],
             outputs=[text_output, audio_output, tone],
         )

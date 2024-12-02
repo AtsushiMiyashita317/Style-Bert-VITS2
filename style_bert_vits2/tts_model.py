@@ -329,7 +329,7 @@ class TTSModel:
                 pitch_scale=pitch_scale,
                 intonation_scale=intonation_scale,
             )
-        audio = self.__convert_to_16_bit_wav(audio)
+        # audio = self.__convert_to_16_bit_wav(audio)
         return (self.hyper_parameters.data.sampling_rate, audio)
 
 
@@ -374,7 +374,10 @@ class TTSModelHolder:
         self.current_model: Optional[TTSModel] = None
         self.model_names: list[str] = []
         self.models_info: list[TTSModelInfo] = []
+        self.engine = None
+        self.nnsvs_kwargs = None
         self.refresh()
+        self.get_nnsvs_for_gradio()
 
     def refresh(self) -> None:
         """
@@ -501,3 +504,80 @@ class TTSModelHolder:
             gr.Dropdown(choices=initial_model_files, value=initial_model_files[0]),  # type: ignore
             gr.Button(interactive=False),  # For tts_button
         )
+
+    def get_nnsvs_for_gradio(self):
+        from pathlib import Path
+
+        import librosa
+        import soundfile as sf
+        from nnsvs.svc import TwoStageSVC
+        from nnsvs.util import init_seed
+        from torch.nn import functional as F
+        from transformers import Wav2Vec2FeatureExtractor, WavLMForXVector
+
+        pretrained_model_path="/home/miyashita21/nas03home/gitrepo/baby_voice/nnsvs/recipes/baby/test_recipe/packed_models/svcc_lr1e-3_nu_diffsvc_cvec_base_fineturn"
+        reference_wav="/home/miyashita21/nas03home/gitrepo/baby_voice/jsut_ver1.1/basic5000/wav/BASIC5000_0001.wav"
+
+        model_dir = Path(pretrained_model_path)
+
+        self.engine = TwoStageSVC(model_dir, device=self.device, verbose=1)
+        self.engine.acoustic_model.mel_model.guidance_scale = float(1.0)
+
+
+        # Optional speaker embedding
+        speaker_feature_extractor = Wav2Vec2FeatureExtractor.from_pretrained(
+            "microsoft/wavlm-base-plus-sv"
+        )
+        speaker_encoder = WavLMForXVector.from_pretrained(
+            "microsoft/wavlm-base-plus-sv"
+        ).to(self.device)
+
+        ref_path = Path(reference_wav)
+        ref_wav, ref_sr = sf.read(ref_path)
+
+        ref_wav_24k = librosa.resample(
+            ref_wav, orig_sr=ref_sr, target_sr=24000, res_type="scipy"
+        )
+        ref_wav = librosa.resample(
+            ref_wav, orig_sr=ref_sr, target_sr=16000, res_type="scipy"
+        )
+        inputs = speaker_feature_extractor(
+            ref_wav, padding=True, return_tensors="pt", sampling_rate=16000
+        ).input_values.to(self.device)
+        spk = F.normalize(speaker_encoder(inputs).embeddings, dim=-1).reshape(1, 1, -1)
+
+        init_seed(1234)
+
+        post_filter_type = "none"
+
+        self.nnsvs_kwargs = {
+            "spk": spk,
+            "ref_wav": ref_wav_24k,
+            "post_filter_type": post_filter_type,
+        }
+
+    def forward_nnsvs(
+            self, 
+            audio_data, 
+            sampling_rate, 
+            prosody,
+            f0_shift_in_cent, 
+            f0_ceil, 
+            f0_floor
+        ):
+        if self.engine is not None:
+            print(np.max(audio_data), np.min(audio_data), sampling_rate)
+            # audio_data = audio_data.astype(np.float32, order="C") 
+            # audio_data = audio_data / 32768.0
+            audio_data, sampling_rate = self.engine.svc(
+                audio_data,
+                sampling_rate,
+                prosody=prosody,
+                f0_shift_in_cent=f0_shift_in_cent,
+                f0_ceil=f0_ceil,
+                f0_floor=f0_floor,
+                **self.nnsvs_kwargs,
+            )
+            print(np.max(audio_data), np.min(audio_data), sampling_rate, self.engine.sample_rate)
+            # audio_data = audio_data.astype(np.int16)
+        return audio_data, sampling_rate
